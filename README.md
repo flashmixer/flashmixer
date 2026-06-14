@@ -1,89 +1,74 @@
-# Flash Mixer — руководство по MCP-интеграции
+# Flash Mixer — MCP Integration Guide
 
-Подключите любого MCP-совместимого AI-агента к **Flash Mixer**, чтобы создавать и
-управлять заказами микширования Bitcoin программно.
+Connect any MCP-compatible AI agent to **Flash Mixer** to create and manage Bitcoin
+mixing orders programmatically.
 
 - **Endpoint:** `https://flashmixer.io/mcp`
-- **Транспорт:** HTTP Streamable
-- **Протокол:** JSON-RPC 2.0
-- **Аутентификация:** `Authorization: Bearer <YOUR_MCP_TOKEN>`
+- **Transport:** HTTP Streamable
+- **Protocol:** JSON-RPC 2.0
+- **Auth:** `Authorization: Bearer <YOUR_MCP_TOKEN>`
 
 > *For educational and privacy purposes only.*
 
 ---
 
-## 1. Обзор
+## 1. Overview
 
-MCP-сервер — это тонкий, **stateless** мост, позволяющий AI-агентам использовать публичные
-возможности Flash Mixer через единый endpoint (`/mcp`). Он говорит на стандартном MCP,
-поэтому работает с PyCharm AI Assistant, Claude Desktop и любым клиентом, поддерживающим
-MCP поверх HTTP Streamable.
+The MCP server is a thin, **stateless** bridge that lets AI agents use Flash Mixer's
+public capabilities through a single endpoint (`/mcp`). It speaks standard MCP, so it
+works with PyCharm AI Assistant, Claude Desktop, and any client that supports MCP over
+HTTP Streamable.
 
-Он предоставляет **5 инструментов**:
+It exposes **5 tools**:
 
-| Инструмент | Назначение |
+| Tool | Purpose |
 |---|---|
-| [`get_pool_configuration`](#инструмент-get_pool_configuration) | Прочитать текущие лимиты пулов, диапазоны комиссий, задержки, курс BTC/USD |
-| [`calculate_exchange_fees`](#инструмент-calculate_exchange_fees) | Оценка суммы к отправке + разбивка комиссий |
-| [`create_exchange_order`](#инструмент-create_exchange_order) | Создать заказ микширования (1–2 отложенные выплаты) |
-| [`get_order_status`](#инструмент-get_order_status) | Проверить статус, подтверждения, выплаты |
-| [`trigger_payment_check`](#инструмент-trigger_payment_check) | Принудительно запустить немедленную повторную проверку платежа |
+| [`get_pool_configuration`](#tool-get_pool_configuration) | Read current pool limits, fee ranges, delays, BTC/USD rate |
+| [`calculate_exchange_fees`](#tool-calculate_exchange_fees) | Estimate total-to-send + fee breakdown |
+| [`create_exchange_order`](#tool-create_exchange_order) | Create a mixing order (1–2 delayed payouts) |
+| [`get_order_status`](#tool-get_order_status) | Check status, confirmations, payouts |
+| [`trigger_payment_check`](#tool-trigger_payment_check) | Force an immediate payment re-check |
 
-> 💡 Рекомендация: сначала вызывайте `get_pool_configuration`. Он возвращает
-> **авторитетные** допустимые диапазоны (мин/макс суммы, диапазоны комиссий, варианты
-> задержек) и текущий курс BTC/USD, чтобы ваш агент никогда не зашивал значения, которые
-> могут измениться.
+> 💡 Best practice: call `get_pool_configuration` first. It returns the **authoritative**
+> valid ranges (min/max amounts, fee ranges, delay options) and the current BTC/USD rate,
+> so your agent never hardcodes values that can change.
 
 ---
-## 2. Аутентификация
 
-Запросы аутентифицируются **Bearer-токеном** (API key) в заголовке `Authorization`:
+## 2. Authentication
+
+Requests are authenticated with a **Bearer token** in the `Authorization` header:
 
 ```
 Authorization: Bearer <YOUR_MCP_TOKEN>
 ```
 
-Это ключ аутентификации MCP Server — он **обязателен** для программного создания заказов
-через MCP. Ключ проверяется на **каждом** запросе; отсутствующий или неверный →
-**401 Unauthorized**.
+- The token is **static**, issued per integration, and validated on **every** request.
+- Missing/invalid token → **401 Unauthorized**.
+- The token is a **secret** — never commit it, never expose it client-side in public apps,
+  and rotate it if it leaks.
 
-Ключ **постоянный** (не сессионный): после получения поместите его в конфиг MCP-клиента и
-храните как секрет — не коммитьте в репозиторий и не раскрывайте в публичных приложениях.
-При утечке создайте новый веб-заказ, чтобы получить новый ключ.
+### Getting a token
 
-### Получение API key
+To get an MCP access token, first create a manual order through the Flash Mixer web interface and complete the payment.
 
-Ключ **не запрашивается у поддержки** — он выдаётся автоматически после успешной оплаты
-веб-заказа, созданного вручную на сайте:
+After the payment receives **3 blockchain confirmations**, your MCP authentication key will be generated and shown **once** on the order status page. Save it immediately and place it in your client config as shown below.
 
-1. Создайте заказ в **ручном режиме** на [flashmixer.io](https://flashmixer.io).
-2. Оплатите его — отправьте BTC на указанный депозитный адрес.
-3. Дождитесь **3 подтверждений** в сети Bitcoin.
-4. На **странице статуса заказа** появится ваш API key для MCP.
-
-> **Сохраните ключ сразу.** Он показывается **один раз** на странице статуса заказа —
-> повторно посмотреть его на сайте нельзя. Скопируйте в конфиг клиента, как показано ниже.
-
-При работе через MCP Server действуют **повышенные лимиты** на заказы по сравнению с
-обычным веб-интерфейсом.
-
-> Примечание: внутри MCP-слой хранит собственные учётные данные для доступа к ядру
-> сервиса; это **не** то, чем занимается интегратор. Вам нужен только ваш **API key**,
-> полученный после оплаченного веб-заказа.
+> Note: You only need the **Bearer token** generated for your order. Keep it private and do not share it publicly.
 
 ---
 
-## 3. Конфигурация клиента
+## 3. Client configuration
 
-Формат конфига — стандартная карта MCP `mcpServers`.
+The config format is the standard MCP `mcpServers` map.
 
 ### PyCharm AI Assistant
 
-**GUI:** Settings → Tools → AI Assistant → Model Context Protocol → добавить сервер:
-- **URL:** `https://flashmixer.io/mcp` *(завершающий `/mcp` обязателен)*
+**GUI:** Settings → Tools → AI Assistant → Model Context Protocol → add server:
+- **URL:** `https://flashmixer.io/mcp` *(the trailing `/mcp` is required)*
 - **Headers:** `{ "Authorization": "Bearer <YOUR_MCP_TOKEN>" }`
 
-**Файл уровня проекта** (например, `.junie/mcp/mcp.json` в вашем репозитории):
+**Project-level file** (e.g. `.junie/mcp/mcp.json` in your repo):
 
 ```json
 {
@@ -98,7 +83,7 @@ Authorization: Bearer <YOUR_MCP_TOKEN>
 
 ### Claude Desktop
 
-Добавьте в конфиг MCP Claude Desktop:
+Add to your Claude Desktop MCP config:
 
 ```json
 {
@@ -111,14 +96,14 @@ Authorization: Bearer <YOUR_MCP_TOKEN>
 }
 ```
 
-### Любой MCP HTTP-клиент
+### Any MCP HTTP client
 
-Направьте его на `https://flashmixer.io/mcp`, транспорт **HTTP Streamable**, с заголовком
-`Authorization: Bearer <YOUR_MCP_TOKEN>`.
+Point it at `https://flashmixer.io/mcp`, transport **HTTP Streamable**, with the
+`Authorization: Bearer <YOUR_MCP_TOKEN>` header.
 
 ---
 
-## 4. Список инструментов
+## 4. List the tools
 
 ```bash
 curl -X POST https://flashmixer.io/mcp \
@@ -128,24 +113,23 @@ curl -X POST https://flashmixer.io/mcp \
   -d '{ "jsonrpc": "2.0", "id": 1, "method": "tools/list", "params": {} }'
 ```
 
-Возвращает описания и входные схемы всех 5 инструментов.
+Returns descriptions and input schemas for all 5 tools.
 
 ---
 
-## 5. Инструменты
+## 5. Tools
 
-Все вызовы используют `method: "tools/call"` с `params.name` и `params.arguments`.
+All tool calls use `method: "tools/call"` with `params.name` and `params.arguments`.
 
-### Инструмент: `get_pool_configuration`
+### Tool: `get_pool_configuration`
 
-Получить текущие лимиты пулов, диапазоны комиссий, задержки и курс BTC/USD. Используйте,
-чтобы узнать, какие параметры допустимы перед созданием заказа.
+Get current pool limits, fee ranges, delays, and the BTC/USD exchange rate. Use this to
+learn what parameters are valid before creating an order.
 
-- **Параметры:** нет.
-- **Возвращает:** текущий курс BTC/USD + таймстамп; для каждого пула — мин/макс сумму,
-  диапазон процентной комиссии, фиксированную комиссию (USD), диапазон и варианты задержек;
-  общие настройки (макс. число адресов выплат, мин. сумму выплаты, TTL заказа, требуемые
-  подтверждения).
+- **Parameters:** none.
+- **Returns:** current BTC/USD rate + timestamp; for each pool — min/max amount, fee
+  percent range, fixed fee (USD), delay range and options; general settings (max payout
+  addresses, min payout amount, order TTL, required confirmations).
 
 ```json
 {
@@ -154,20 +138,20 @@ curl -X POST https://flashmixer.io/mcp \
 }
 ```
 
-### Инструмент: `calculate_exchange_fees`
+### Tool: `calculate_exchange_fees`
 
-Оценить суммарные комиссии и сумму к отправке перед созданием заказа. Берёт текущий курс
-BTC/USD и считает локально.
+Estimate total fees and the amount to send before creating an order. Fetches the current
+BTC/USD rate and computes locally.
 
-| Параметр | Тип | Описание |
+| Parameter | Type | Description |
 |---|---|---|
-| `pool` | string | `"standard"` или `"premium"` |
-| `net_amount_btc` | string | Сумма, которую вы хотите **получить**, напр. `"0.5"` |
-| `fee_percent` | number | Ваша % комиссия (должна быть в диапазоне пула — см. `get_pool_configuration`) |
+| `pool` | string | `"standard"` or `"premium"` |
+| `net_amount_btc` | string | Amount you want to **receive**, e.g. `"0.5"` |
+| `fee_percent` | number | Your chosen fee % (must be within the pool's range — see `get_pool_configuration`) |
 
-- **Возвращает:** желаемую сумму получения; разбивку комиссий (процентная комиссия в BTC,
-  фиксированная USD→BTC, суммарная комиссия); **сумму к отправке**; текущий курс + таймстамп;
-  сводку (Send X → Receive Y after Z fee).
+- **Returns:** desired-receive amount; fee breakdown (percentage fee in BTC, fixed fee
+  USD→BTC, total fee); **amount to send**; current rate + timestamp; a summary
+  (Send X → Receive Y after Z fee).
 
 ```json
 {
@@ -179,27 +163,27 @@ BTC/USD и считает локально.
 }
 ```
 
-### Инструмент: `create_exchange_order`
+### Tool: `create_exchange_order`
 
-Создать новый заказ микширования Bitcoin с отложенными выплатами.
+Create a new Bitcoin mixing order with delayed payouts.
 
-| Параметр | Тип | Описание |
+| Parameter | Type | Description |
 |---|---|---|
-| `pool` | string | `"standard"` или `"premium"` |
-| `fee_percent` | number | Ваша % комиссия в пределах диапазона пула |
-| `payouts` | array | **1–2** объекта выплат (см. ниже) |
+| `pool` | string | `"standard"` or `"premium"` |
+| `fee_percent` | number | Your chosen fee % within the pool's range |
+| `payouts` | array | **1–2** payout objects (see below) |
 
-Каждый объект `payouts[]`:
+Each `payouts[]` object:
 
-| Поле | Тип | Описание |
+| Field | Type | Description |
 |---|---|---|
-| `payout_address` | string | Адрес назначения BTC (`bc1…`, `1…` или `3…`) |
-| `net_amount_btc` | string | Сумма, которую этот адрес должен **получить**, напр. `"0.5"` |
-| `delay_hours` | integer | Задержка перед этой выплатой (0–72; ≥ 2 для Premium) |
-| `payout_order` | integer | `1` или `2` |
+| `payout_address` | string | Destination BTC address (`bc1…`, `1…`, or `3…`) |
+| `net_amount_btc` | string | Amount this address should **receive**, e.g. `"0.5"` |
+| `delay_hours` | integer | Delay before this payout (0–72; ≥ 2 for Premium) |
+| `payout_order` | integer | `1` or `2` |
 
-- **Возвращает:** детали заказа, включая **order UUID**, уникальный **депозитный (платёжный)
-  адрес**, время истечения и расписание выплат.
+- **Returns:** order details including the **order UUID**, the unique **deposit
+  (payment) address**, expiry time, and the payout schedule.
 
 ```json
 {
@@ -218,19 +202,19 @@ BTC/USD и считает локально.
 }
 ```
 
-> Сохраните возвращённый **order UUID** — это то, по чему вы (или ваш агент) проверяете
-> статус позже. Аккаунта нет; UUID — это доступ к заказу.
+> Save the returned **order UUID** — it's how you (or your agent) check status later.
+> There is no account; the UUID is the handle on the order.
 
-### Инструмент: `get_order_status`
+### Tool: `get_order_status`
 
-Проверить существующий заказ: статус платежа, подтверждения и детали выплат.
+Check an existing order: payment status, confirmations, and payout details.
 
-| Параметр | Тип | Описание |
+| Parameter | Type | Description |
 |---|---|---|
-| `order_uuid` | string | UUID, возвращённый `create_exchange_order` |
+| `order_uuid` | string | The UUID returned by `create_exchange_order` |
 
-- **Возвращает:** статус (`new`/`confirming`/`confirmed`/`notified`/`processing`/`completed`/
-  `expired`), число подтверждений (X/3) и статус по каждой выплате.
+- **Returns:** status (`new`/`confirming`/`confirmed`/`notified`/`processing`/`completed`/
+  `expired`), confirmation count (X/3), and per-payout status.
 
 ```json
 {
@@ -239,17 +223,17 @@ BTC/USD и считает локально.
 }
 ```
 
-### Инструмент: `trigger_payment_check`
+### Tool: `trigger_payment_check`
 
-Вручную запустить проверку платежа по заказу — полезно сразу после отправки, вместо
-ожидания автоматической проверки.
+Manually trigger payment verification for an order — useful right after sending, instead
+of waiting for the automatic check.
 
-| Параметр | Тип | Описание |
+| Parameter | Type | Description |
 |---|---|---|
-| `order_uuid` | string | UUID для повторной проверки |
+| `order_uuid` | string | The UUID to re-check |
 
-- **Возвращает:** обнаружен ли платёж, со статусом, числом подтверждений и хешем транзакции,
-  если найден.
+- **Returns:** whether a payment was detected, with status, confirmation count, and the
+  transaction hash if found.
 
 ```json
 {
@@ -260,33 +244,33 @@ BTC/USD и считает локально.
 
 ---
 
-## 6. Типичный поток агента
+## 6. Typical agent flow
 
-1. `get_pool_configuration` → узнать допустимые диапазоны + текущий курс.
-2. `calculate_exchange_fees` → подтвердить сумму к отправке для желаемой суммы получения пользователя.
-3. `create_exchange_order` → получить депозитный адрес + order UUID.
-4. *(пользователь отправляет BTC)*
-5. `get_order_status` (или `trigger_payment_check` сразу после оплаты) → отслеживать до завершения.
+1. `get_pool_configuration` → learn valid ranges + current rate.
+2. `calculate_exchange_fees` → confirm the total-to-send for the user's desired receive amount.
+3. `create_exchange_order` → get the deposit address + order UUID.
+4. *(user sends BTC)*
+5. `get_order_status` (or `trigger_payment_check` right after payment) → track to completion.
 
 ---
 
-## 7. Устранение неполадок
+## 7. Troubleshooting
 
-| Симптом | Вероятная причина |
+| Symptom | Likely cause |
 |---|---|
-| `401 Unauthorized` | Отсутствует/неверен Bearer-токен, либо заголовок `Authorization` срезан прокси |
-| Endpoint не найден | В URL отсутствует завершающий `/mcp` |
-| Инструмент отклоняет `fee_percent` / сумму | Значение вне допустимого диапазона пула — перечитайте `get_pool_configuration` |
-| Инструменты не перечислены | Клиент не использует транспорт HTTP Streamable, либо неверный endpoint |
+| `401 Unauthorized` | Missing/invalid Bearer token, or `Authorization` header stripped by a proxy |
+| Endpoint not found | URL missing the trailing `/mcp` |
+| Tool rejects `fee_percent` / amount | Value outside the pool's valid range — re-read `get_pool_configuration` |
+| No tools listed | Client not using HTTP Streamable transport, or wrong endpoint |
 
 ---
 
-## 8. Заметки и лимиты
+## 8. Notes & limits
 
-- Endpoint **stateless** — без сессий; каждый вызов самостоятелен.
-- Программный доступ **ограничен по частоте**; проектируйте агентов на backoff, а не на «долбёжку».
-- Держите **токен в секрете**; ротируйте при утечке.
-- Публичные возможности без ключа (config, create, status, расчёт комиссий) покрывают
-  обычное использование; некоторые служебные операции ограничены — вашей интеграции они не понадобятся.
+- The endpoint is **stateless** — no sessions; each call stands alone.
+- Programmatic access is **rate-limited**; design agents to back off rather than hammer.
+- Keep your **token secret**; rotate on exposure.
+- Public, no-key capabilities (config, create, status, fee calc) cover normal use;
+  some maintenance operations are restricted — your integration won't need them.
 
-> Вопросы или запрос токена: **flashmixer@proton.me** · *For educational and privacy purposes only.*
+> Questions or token requests: **flashmixer@proton.me** · *For educational and privacy purposes only.*
