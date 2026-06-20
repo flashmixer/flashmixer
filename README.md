@@ -272,5 +272,18 @@ of waiting for the automatic check.
 - Keep your **token secret**; rotate on exposure.
 - Public, no-key capabilities (config, create, status, fee calc) cover normal use;
   some maintenance operations are restricted — your integration won't need them.
+  
+## 🌐 Web
+- [flashmixer.io](https://flashmixer.io)
+## 🔗 Mirrors
+- [flashmixer.to](https://flashmixer.to)
+- [flashmixer.co](https://flashmixer.co)
+## 🧅 Tor
+- [http://flashmxup6d3qesb72j3ciurm6v2tgjjhdffndiv35o2ifk62wv7njid.onion](http://flashmxup6d3qesb72j3ciurm6v2tgjjhdffndiv35o2ifk62wv7njid.onion)  
+  *(NoJS recommended)*
+## ✈️ Telegram
+- [Flash Mixer](https://t.me/flashmixer_bot)
+## 📧 Support
+- [flashmixer@proton.me](mailto:flashmixer@proton.me)
 
-> Questions or token requests: **flashmixer@proton.me** · *For educational and privacy purposes only.*
+> *For educational and privacy purposes only.*
